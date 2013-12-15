@@ -1,4 +1,4 @@
-from .parser import Defun, Call, Variable, IntConstant
+from .parser import Defun, Call, Variable, IntConstant, StrConstant
 from .types import ConstructedType, AtomicType, typify
 from .generic import generic
 from llvm import LLVMException
@@ -10,7 +10,8 @@ class ScopeItem:
         self.code = code
 
 class Builtin:
-    pass
+    def __init__(self, mod):
+        pass
 
 class Add(Builtin):
     type = ConstructedType('fn', AtomicType('int'), AtomicType('int'), AtomicType('int'))
@@ -19,9 +20,21 @@ class Add(Builtin):
         a, b = args
         return builder.add(a, b)
 
-builtins = {
-    '+': Add()
-}
+class PutS(Builtin):
+    type = ConstructedType('fn', AtomicType('int'), AtomicType('str'))
+
+    def __init__(self, mod):
+        self.code = mod.add_function(llvm_type(self.type), "puts")
+
+    def call(self, args, fn, builder):
+        return builder.call(self.code, args)
+
+def get_builtins(mod):
+    builtins = {
+        '+': Add(mod),
+        'puts': PutS(mod)
+    }
+    return builtins
 
 @generic
 def llvm_type(t):
@@ -31,6 +44,9 @@ def llvm_type(t):
 def lt_AtomicType(t):
     if t.typename == 'int':
         return llvm.Type.int()
+    elif t.typename == 'str':
+        i8 = llvm.Type.int(8)
+        return llvm.Type.pointer(i8)
     else:
         raise RuntimeError("found unknown atomic type {}".format(t.typename))
 
@@ -43,25 +59,36 @@ def lt_ConstructedType(t):
         raise RuntimeError("found unknown constructed type {}".format(t.constructor))
 
 @generic
-def compile_expression(expr, fn, builder, scope, types):
+def compile_expression(expr, mod, fn, builder, scope, types):
     pass
 
 @compile_expression.implementation(IntConstant)
-def ce_IntConstant(expr, fn, builder, scope, types):
+def ce_IntConstant(expr, mod, fn, builder, scope, types):
     ty = types.get(expr.type, expr.type)
     return llvm.Constant.int(llvm_type(ty), expr.info)
 
+ce_StrConstant_num = 0
+@compile_expression.implementation(StrConstant)
+def ce_StrConstant(expr, mod, fn, builder, scope, types):
+    global ce_StrConstant_num
+    ty = llvm.Type.array(llvm.Type.int(8), len(expr.info) + 1)
+    c = llvm.GlobalVariable.new(mod, ty, "str"+str(ce_StrConstant_num))
+    c.initializer = llvm.Constant.string(expr.info + "\0")
+    ce_StrConstant_num += 1
+    
+    return builder.gep(c, [llvm.Constant.int(llvm.Type.int(), 0)] * 2)
+
 @compile_expression.implementation(Variable)
-def ce_Variable(expr, fn, builder, scope, types):
+def ce_Variable(expr, mod, fn, builder, scope, types):
     v = scope[expr.info]
     if isinstance(v, Builtin):
         return v
     return v.code
 
 @compile_expression.implementation(Call)
-def ce_Call(expr, fn, builder, scope, types):
-    func = compile_expression(expr.info['function'], fn, builder, scope, types)
-    args = [compile_expression(a, fn, builder, scope, types) for a in expr.info['tail']]
+def ce_Call(expr, mod, fn, builder, scope, types):
+    func = compile_expression(expr.info['function'], mod, fn, builder, scope, types)
+    args = [compile_expression(a, mod, fn, builder, scope, types) for a in expr.info['tail']]
     if isinstance(func, Builtin):
         return func.call(args, fn, builder)
     else:
@@ -91,7 +118,7 @@ def cs_Defun(stat, mod, scope):
 
     bb = fn.append_basic_block("entry")
     builder = llvm.Builder.new(bb)
-    v = compile_expression(stat.info['tail'][-1], fn, builder, subscope, types)
+    v = compile_expression(stat.info['tail'][-1], mod, fn, builder, subscope, types)
     builder.ret(v)
 
     scope[name] = ScopeItem(ty, fn)
@@ -101,8 +128,8 @@ if __name__ == '__main__':
     from .parser import parse_statement
     from .tokenizer import tokenize
 
-    scope = builtins.copy()
     mod = llvm.Module.new('test')
+    scope = get_builtins(mod)
     for tok in tokenize(sys.stdin):
         ast = parse_statement(tok)
         compile_statement(ast, mod, scope)

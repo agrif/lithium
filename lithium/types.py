@@ -1,4 +1,4 @@
-from .parser import Variable, IntConstant, Call, Defun
+from .parser import Variable, IntConstant, StrConstant, Call, Defun
 from .generic import generic
 import string
 import copy
@@ -144,6 +144,10 @@ def gt_Variable(expr, exprtype, scope):
 @generate_typerules.implementation(IntConstant)
 def gt_IntConstant(expr, exprtype, scope):
     return [(exprtype, AtomicType('int'))]
+
+@generate_typerules.implementation(StrConstant)
+def gt_StrConstant(expr, exprtype, scope):
+    return [(exprtype, AtomicType('str'))]
 
 @generate_typerules.implementation(Call)
 def gt_Call(expr, exprtype, scope):

@@ -1,4 +1,5 @@
 import pyparsing as pyp
+import codecs
 
 class Expr:
     def __init__(self, s, loc, toks):
@@ -7,13 +8,18 @@ class Expr:
         self.line = pyp.line(loc, s)
         self.value = self._fromtoken(toks[0])
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, self.value)
+        return "{}({!r})".format(self.__class__.__name__, self.value)
     def _fromtoken(self, tok):
         return tok
 
 class List(Expr):
     def _fromtoken(self, tok):
         return tok.asList()
+
+class String(Expr):
+    def _fromtoken(self, tok):
+        s = tok[1:-1]
+        return codecs.getdecoder("unicode_escape")(s)[0]
 
 class Symbol(Expr):
     pass
@@ -26,7 +32,8 @@ LPAR, RPAR = map(pyp.Suppress, "()")
 
 integer = pyp.Regex(r'-?0|[1-9]\d*').setParseAction(Integer)
 symbol = pyp.Word(pyp.alphanums + "-./_:*+=").setParseAction(Symbol)
-atom = integer | symbol
+string = pyp.quotedString.setParseAction(String)
+atom = integer | symbol | string
 
 sexp = pyp.Forward()
 sexpList = pyp.Group(LPAR + pyp.ZeroOrMore(sexp) + RPAR).setParseAction(List)

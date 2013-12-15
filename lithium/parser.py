@@ -1,4 +1,4 @@
-from .tokenizer import Integer
+from .tokenizer import Integer, String
 from .patterns import *
 
 class ParseError(Exception):
@@ -73,6 +73,10 @@ class Call(Parser):
 @expression
 class IntConstant(Parser):
     pattern = PClass(Integer)
+
+@expression
+class StrConstant(Parser):
+    pattern = PClass(String)
 
 @expression
 class Variable(Parser):
